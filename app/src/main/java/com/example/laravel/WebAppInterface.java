@@ -25,6 +25,7 @@ public class WebAppInterface {
                 .putString("name", name)
                 .apply();
 
+        Log.d("SAVED_USER", "User ID = " + userId);
     }
 
     public String getUserId(){
