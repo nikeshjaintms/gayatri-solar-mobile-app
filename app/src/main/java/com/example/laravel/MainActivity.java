@@ -3,11 +3,16 @@ package com.example.laravel;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Log;
 import android.webkit.CookieManager;
 import android.webkit.GeolocationPermissions;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -23,248 +28,168 @@ public class MainActivity extends AppCompatActivity {
     private static final int NOTIFICATION_PERMISSION_REQUEST_CODE = 1002;
 
     private WebView webView;
-
     private WebAppInterface webAppInterface;
 
+    // To hold the callback when requesting location permissions dynamically
+    private String geoOrigin;
+    private GeolocationPermissions.Callback geoCallback;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-
         super.onCreate(savedInstanceState);
-
         setContentView(R.layout.activity_main);
+        
+        // 1. MainActivity started
+        Log.d("LOCATION_DEBUG", "MainActivity started");
 
-        // -------------------------------------------------
         // Initialize WebView
-        // -------------------------------------------------
-
         webView = findViewById(R.id.webView);
-
         setupWebView();
+        
+        // 2. WebView initialized
+        Log.d("LOCATION_DEBUG", "WebView initialized");
 
-        // -------------------------------------------------
-        // Load Laravel Website
-        // -------------------------------------------------
+        // Request notification permission up front if needed
+        requestNotificationPermission();
 
-        webView.loadUrl(
-                getString(R.string.web_url)
-        );
-
-        // -------------------------------------------------
-        // Request permissions
-        // -------------------------------------------------
-
-        requestRequiredPermissions();
+        // Load Laravel URL
+        String webUrl = getString(R.string.web_url);
+        // 3. Laravel URL loaded
+        Log.d("LOCATION_DEBUG", "Laravel URL loaded: " + webUrl);
+        webView.loadUrl(webUrl);
     }
 
-
     /**
-     * -----------------------------------------------------
      * WEBVIEW SETUP
-     * -----------------------------------------------------
      */
     @SuppressLint("SetJavaScriptEnabled")
     private void setupWebView() {
+        Log.d("LOCATION_DEBUG", "Setting up WebView");
 
         WebSettings settings = webView.getSettings();
 
         // JavaScript
         settings.setJavaScriptEnabled(true);
 
-        // Local Storage
+        // Local Storage & Database
         settings.setDomStorageEnabled(true);
-
-        // Database
         settings.setDatabaseEnabled(true);
+
+        // IMPORTANT: Geolocation enabled for WebView
+        settings.setGeolocationEnabled(true);
 
         // Mobile rendering
         settings.setLoadWithOverviewMode(true);
         settings.setUseWideViewPort(true);
 
+        // WebViewClient with page and error logging
+        webView.setWebViewClient(new WebViewClient() {
 
-        // -------------------------------------------------
-        // Normal WebView navigation
-        // -------------------------------------------------
+            @Override
+            public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                super.onPageStarted(view, url, favicon);
+                // 4. WebView page started
+                Log.d("WEBVIEW_DEBUG", "WebView page started: " + url);
+            }
 
-        webView.setWebViewClient(
-                new WebViewClient()
-        );
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                // 5. WebView page finished
+                Log.d("WEBVIEW_DEBUG", "WebView page finished: " + url);
+            }
 
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                super.onReceivedError(view, request, error);
+                // 17. Any WebView errors
+                String description = error.getDescription().toString();
+                Log.e("WEBVIEW_DEBUG", "WebView error: " + description + " for URL: " + request.getUrl());
+            }
 
-        // -------------------------------------------------
-        // IMPORTANT:
-        // Allow Laravel JavaScript geolocation
-        // -------------------------------------------------
+            @Override
+            public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse errorResponse) {
+                super.onReceivedHttpError(view, request, errorResponse);
+                // 17. Any WebView errors
+                Log.e("WEBVIEW_DEBUG", "WebView HTTP error code: " + errorResponse.getStatusCode() + " for URL: " + request.getUrl());
+            }
+        });
 
-        webView.setWebChromeClient(
-                new WebChromeClient() {
+        // WebChromeClient for Geolocation permissions prompt
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onGeolocationPermissionsShowPrompt(
+                    String origin,
+                    GeolocationPermissions.Callback callback
+            ) {
+                // 9. WebView geolocation request received
+                Log.d("LOCATION_DEBUG", "WebView geolocation request received");
+                
+                // 10. WebView geolocation origin
+                Log.d("LOCATION_DEBUG", "WebView geolocation origin: " + origin);
 
-                    @Override
-                    public void onGeolocationPermissionsShowPrompt(
-                            String origin,
-                            GeolocationPermissions.Callback callback
-                    ) {
+                boolean fineGranted = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+                boolean coarseGranted = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
 
-                        /*
-                         * Allow the website to use the location
-                         * after Android location permission
-                         * has been granted.
-                         */
+                // 6. Android location permission status
+                Log.d("LOCATION_DEBUG", "Android location permission status - Fine: " + fineGranted + ", Coarse: " + coarseGranted);
+                // 7. Fine location permission status
+                Log.d("LOCATION_DEBUG", "Fine location permission status: " + fineGranted);
+                // 8. Coarse location permission status
+                Log.d("LOCATION_DEBUG", "Coarse location permission status: " + coarseGranted);
 
-                        callback.invoke(
-                                origin,
-                                true,
-                                false
-                        );
-                    }
+                if (fineGranted || coarseGranted) {
+                    // Allow geolocation permission for the origin
+                    callback.invoke(origin, true, false);
+                    // 11. WebView geolocation callback invoked
+                    Log.d("LOCATION_DEBUG", "WebView geolocation callback invoked (Allowed)");
+                } else {
+                    // Save callback and origin to invoke after user grants permission
+                    geoOrigin = origin;
+                    geoCallback = callback;
+                    Log.d("LOCATION_DEBUG", "Android permission missing. Requesting permission now...");
+                    ActivityCompat.requestPermissions(
+                            MainActivity.this,
+                            new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION},
+                            LOCATION_PERMISSION_REQUEST_CODE
+                    );
                 }
-        );
+            }
+        });
 
-
-        // -------------------------------------------------
         // Laravel Cookies / Authentication
-        // -------------------------------------------------
-
-        CookieManager cookieManager =
-                CookieManager.getInstance();
-
+        CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
+        cookieManager.setAcceptThirdPartyCookies(webView, true);
 
-        cookieManager.setAcceptThirdPartyCookies(
-                webView,
-                true
-        );
-
-
-        // -------------------------------------------------
         // Laravel -> Android JavaScript Bridge
-        // -------------------------------------------------
-
-        webAppInterface =
-                new WebAppInterface(this);
-
-        webView.addJavascriptInterface(
-                webAppInterface,
-                "Android"
-        );
+        webAppInterface = new WebAppInterface(this);
+        webView.addJavascriptInterface(webAppInterface, "Android");
     }
 
-
     /**
-     * -----------------------------------------------------
-     * PERMISSION FLOW
-     * -----------------------------------------------------
-     */
-    private void requestRequiredPermissions() {
-
-        requestLocationPermission();
-    }
-
-
-    /**
-     * -----------------------------------------------------
-     * LOCATION PERMISSION
-     * -----------------------------------------------------
-     */
-    private void requestLocationPermission() {
-
-        boolean fineGranted =
-                ContextCompat.checkSelfPermission(
-                        this,
-                        Manifest.permission.ACCESS_FINE_LOCATION
-                ) == PackageManager.PERMISSION_GRANTED;
-
-
-        boolean coarseGranted =
-                ContextCompat.checkSelfPermission(
-                        this,
-                        Manifest.permission.ACCESS_COARSE_LOCATION
-                ) == PackageManager.PERMISSION_GRANTED;
-
-
-        // For precise location we want FINE location.
-        if (!fineGranted) {
-
-            ActivityCompat.requestPermissions(
-                    this,
-
-                    new String[]{
-                            Manifest.permission.ACCESS_FINE_LOCATION,
-                            Manifest.permission.ACCESS_COARSE_LOCATION
-                    },
-
-                    LOCATION_PERMISSION_REQUEST_CODE
-            );
-
-        } else {
-
-            // Location already granted
-            requestNotificationPermission();
-        }
-    }
-
-
-    /**
-     * -----------------------------------------------------
-     * NOTIFICATION PERMISSION
-     * Android 13+
-     * -----------------------------------------------------
+     * NOTIFICATION PERMISSION (Android 13+)
      */
     private void requestNotificationPermission() {
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-
             boolean notificationGranted =
                     ContextCompat.checkSelfPermission(
                             this,
                             Manifest.permission.POST_NOTIFICATIONS
                     ) == PackageManager.PERMISSION_GRANTED;
 
-
             if (!notificationGranted) {
-
                 ActivityCompat.requestPermissions(
                         this,
-
-                        new String[]{
-                                Manifest.permission.POST_NOTIFICATIONS
-                        },
-
+                        new String[]{Manifest.permission.POST_NOTIFICATIONS},
                         NOTIFICATION_PERMISSION_REQUEST_CODE
                 );
-
-                return;
             }
         }
-
-
-        // Permission already granted
-        permissionsCompleted();
     }
 
-
     /**
-     * -----------------------------------------------------
-     * ALL REQUIRED PERMISSIONS COMPLETED
-     * -----------------------------------------------------
-     */
-    private void permissionsCompleted() {
-
-        /*
-         * WebView location is now allowed.
-         *
-         * Later, when we implement native background
-         * tracking, we will start LocationService here.
-         *
-         * DO NOT start it yet.
-         */
-    }
-
-
-    /**
-     * -----------------------------------------------------
      * PERMISSION RESULT
-     * -----------------------------------------------------
      */
     @Override
     public void onRequestPermissionsResult(
@@ -272,112 +197,61 @@ public class MainActivity extends AppCompatActivity {
             @NonNull String[] permissions,
             @NonNull int[] grantResults
     ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
 
-        super.onRequestPermissionsResult(
-                requestCode,
-                permissions,
-                grantResults
-        );
-
-
-        // -------------------------------------------------
-        // LOCATION
-        // -------------------------------------------------
-
-        if (requestCode ==
-                LOCATION_PERMISSION_REQUEST_CODE) {
-
-
+        if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
             boolean fineGranted =
                     ContextCompat.checkSelfPermission(
                             this,
                             Manifest.permission.ACCESS_FINE_LOCATION
                     ) == PackageManager.PERMISSION_GRANTED;
+                    
+            boolean coarseGranted =
+                    ContextCompat.checkSelfPermission(
+                            this,
+                            Manifest.permission.ACCESS_COARSE_LOCATION
+                    ) == PackageManager.PERMISSION_GRANTED;
 
-
-            if (fineGranted) {
-
-                // Location permission successful
-                requestNotificationPermission();
-
+            if (fineGranted || coarseGranted) {
+                Log.d("LOCATION_DEBUG", "Location permission granted by user.");
+                if (geoCallback != null) {
+                    geoCallback.invoke(geoOrigin, true, false);
+                    Log.d("LOCATION_DEBUG", "WebView geolocation callback invoked (Allowed after user prompt)");
+                    geoCallback = null;
+                    geoOrigin = null;
+                }
             } else {
-
-                // Location permission denied
-
-                // WebView geolocation will not work
+                // 18. Any permission errors
+                Log.e("LOCATION_DEBUG", "Location permission denied by user.");
+                if (geoCallback != null) {
+                    geoCallback.invoke(geoOrigin, false, false);
+                    Log.e("LOCATION_DEBUG", "WebView geolocation callback invoked (Denied)");
+                    geoCallback = null;
+                    geoOrigin = null;
+                }
             }
-
-
-            return;
-        }
-
-
-        // -------------------------------------------------
-        // NOTIFICATION
-        // -------------------------------------------------
-
-        if (requestCode ==
-                NOTIFICATION_PERMISSION_REQUEST_CODE) {
-
-            /*
-             * Notification permission is not required
-             * for WebView geolocation.
-             *
-             * Even if user denies notification,
-             * we can continue.
-             */
-
-            permissionsCompleted();
-
-            return;
         }
     }
 
-
-    /**
-     * -----------------------------------------------------
-     * BACK BUTTON
-     * -----------------------------------------------------
-     */
     @SuppressLint("GestureBackNavigation")
     @Override
     public void onBackPressed() {
-
-        if (webView != null &&
-                webView.canGoBack()) {
-
+        if (webView != null && webView.canGoBack()) {
             webView.goBack();
-
         } else {
-
             super.onBackPressed();
         }
     }
 
-
-    /**
-     * -----------------------------------------------------
-     * DESTROY WEBVIEW
-     * -----------------------------------------------------
-     */
     @Override
     protected void onDestroy() {
-
         if (webView != null) {
-
             webView.stopLoading();
-
             webView.setWebViewClient(null);
-
             webView.setWebChromeClient(null);
-
-            webView.removeJavascriptInterface(
-                    "Android"
-            );
-
+            webView.removeJavascriptInterface("Android");
             webView.destroy();
         }
-
         super.onDestroy();
     }
 }
