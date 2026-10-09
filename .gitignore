@@ -13,3 +13,7 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+.git-backup/
+.git-backup-recovery/
+.git-backup/

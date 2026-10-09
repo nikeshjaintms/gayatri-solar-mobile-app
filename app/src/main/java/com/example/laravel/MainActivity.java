@@ -214,6 +214,13 @@ public class MainActivity extends AppCompatActivity {
 
             if (fineGranted || coarseGranted) {
                 Log.d("LOCATION_DEBUG", "Location permission granted by user.");
+                
+                // If they logged in previously but tracking failed to start, start it now!
+                if (webAppInterface != null && webAppInterface.getUserId() != null && !webAppInterface.getUserId().isEmpty()) {
+                    Log.d("LOCATION_DEBUG", "User is logged in. Starting tracking service since permission was just granted.");
+                    webAppInterface.startLocationTrackingAndSync();
+                }
+
                 if (geoCallback != null) {
                     geoCallback.invoke(geoOrigin, true, false);
                     Log.d("LOCATION_DEBUG", "WebView geolocation callback invoked (Allowed after user prompt)");
@@ -230,6 +237,25 @@ public class MainActivity extends AppCompatActivity {
                     geoOrigin = null;
                 }
             }
+        }
+    }
+
+    // Helper method called from WebAppInterface after a successful login
+    public void checkAndStartLocationService() {
+        boolean fineGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+        boolean coarseGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+
+        if (fineGranted || coarseGranted) {
+            // Permission already granted, start tracking immediately
+            webAppInterface.startLocationTrackingAndSync();
+        } else {
+            // Permission missing. Ask the user for it!
+            Log.d("LOCATION_DEBUG", "Login successful, but location permission missing. Requesting now.");
+            ActivityCompat.requestPermissions(
+                    this,
+                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION},
+                    LOCATION_PERMISSION_REQUEST_CODE
+            );
         }
     }
 
